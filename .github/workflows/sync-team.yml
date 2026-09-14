@@ -1,9 +1,11 @@
 name: 同步只读团队（兜底）
 
 # 作用：保证「组织成员 = 只读团队成员」这个不变量。
-# 为什么需要：走 join 仓库申请流程的邀请会带 team_ids，接受即入团队；
-# 但如果有人是被管理员从组织 UI 手动邀请的（没勾团队），就不会自动进 basic。
-# 本工作流只做「补齐」，从不移除任何人（移除是管理员的有意操作）。
+# 走 join 仓库申请流程的邀请会带 team_ids，接受即入团队；本工作流是兜底：
+# 每周扫描全部组织成员，把不在只读团队里的补齐进去；只加不删（移除是管理员的有意操作）。
+#
+# 本版加了自诊断：每个 API 调用都打印 HTTP 状态码与错误消息，失败时给出明确原因，
+# 并把组织下的团队（slug | name）列出来，便于确认 TEAM_SLUG 是否写对。
 on:
   schedule:
     - cron: '30 1 * * 1'      # 每周一 09:30（北京时间）
@@ -22,42 +24,90 @@ jobs:
           ORG: ${{ vars.ORG_NAME || 'Agentic-Data-Lab' }}
           TEAM_SLUG: ${{ vars.TEAM_SLUG || 'basic' }}
         run: |
-          set -euo pipefail
-          if [ -z "${ORG_TOKEN:-}" ]; then
-            echo "::notice::尚未配置 ORG_ADMIN_TOKEN，本工作流跳过（配置后自动生效）"
-            exit 0
-          fi
+          set -uo pipefail
+          API=/tmp/api.json
+          MEMBERS=/tmp/members.txt
+          TEAM=/tmp/team.txt
+          : > "$MEMBERS"; : > "$TEAM"
 
-          api() {
-            curl -sS -H "Authorization: Bearer $ORG_TOKEN" \
+          echo "ORG       = '$ORG'"
+          echo "TEAM_SLUG = '$TEAM_SLUG'"
+          if [ -z "${ORG_TOKEN:-}" ]; then
+            echo "::error::ORG_ADMIN_TOKEN 为空 —— Settings → Secrets and variables → Actions 里添加仓库 secret"
+            exit 1
+          fi
+          echo "TOKEN     = ${ORG_TOKEN:0:11}…（长度 ${#ORG_TOKEN}；细粒度应为 github_pat_，经典应为 ghp_）"
+
+          code_of() {   # code_of <api-path>  → 打印状态码，响应体落在 $API
+            curl -sS -o "$API" -w '%{http_code}' \
+              -H "Authorization: Bearer $ORG_TOKEN" \
               -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" "$@"
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com$1"
+          }
+          fail() {      # fail <说明> <状态码>
+            echo "::error::$1（HTTP $2）：$(jq -rc '.message? // .' "$API" 2>/dev/null | head -c 300)"
+            exit 1
+          }
+          list_members() {  # list_members <路径前缀> <输出文件>
+            local path="$1" out="$2" page=1 n c
+            while :; do
+              c=$(code_of "$path?per_page=100&page=$page")
+              echo "GET $path?page=$page → HTTP $c"
+              [ "$c" = "200" ] || return 1
+              n=$(jq 'if type==\"array\" then length else -1 end' "$API")
+              [ "$n" -lt 0 ] && return 1
+              jq -r 'if type==\"array\" then .[].login else empty end' "$API" >> "$out"
+              [ "$n" -lt 100 ] && break
+              page=$((page+1))
+            done
+            return 0
           }
 
-          # 取全部组织成员（分页）
-          members=""
-          page=1
-          while :; do
-            chunk=$(api "https://api.github.com/orgs/$ORG/members?per_page=100&page=$page" | jq -r '.[].login')
-            [ -z "$chunk" ] && break
-            members="$members$chunk"$'\n'
-            [ "$(echo "$chunk" | wc -l)" -lt 100 ] && break
-            page=$((page+1))
-          done
+          # ---- 1) 组织是否可读（验证 ORG_NAME 与 token 的 Resource owner）----
+          c=$(code_of "/orgs/$ORG")
+          echo "GET /orgs/$ORG → HTTP $c"
+          [ "$c" = "200" ] || fail "读不到组织 $ORG：确认 Variables 里的 ORG_NAME，以及 token 的 Resource owner 选的是该组织（不是个人账号）" "$c"
+          echo "组织 login = $(jq -r '.login' "$API")"
 
-          team=$(api "https://api.github.com/orgs/$ORG/teams/$TEAM_SLUG/members?per_page=100" | jq -r '.[].login')
-
-          added=0
-          for u in $members; do
-            [ -z "$u" ] && continue
-            if ! grep -qx "$u" <<<"$team"; then
-              code=$(curl -sS -o /dev/null -w '%{http_code}' -X PUT \
-                -H "Authorization: Bearer $ORG_TOKEN" \
-                -H "Accept: application/vnd.github+json" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
-                "https://api.github.com/orgs/$ORG/teams/$TEAM_SLUG/memberships/$u")
-              echo "加入 $TEAM_SLUG: $u (HTTP $code)"
-              added=$((added+1))
+          # ---- 2) 团队清单：顺便把正确的 slug 打出来 ----
+          c=$(code_of "/orgs/$ORG/teams?per_page=100")
+          echo "GET /orgs/$ORG/teams → HTTP $c"
+          if [ "$c" = "200" ]; then
+            echo "组织下的团队（slug | name | privacy）:"
+            jq -r 'if type==\"array\" then (.[] | "  - \(.slug) | \(.name) | \(.privacy)") else "  (非数组响应)" end' "$API"
+            if ! jq -e --arg s "$TEAM_SLUG" 'if type==\"array\" then (map(.slug) | index($s) != null) else false end' "$API" >/dev/null; then
+              echo "::warning::团队 slug '$TEAM_SLUG' 不在上面的清单里 —— 请把 Variables 的 TEAM_SLUG 改成正确的 slug"
             fi
-          done
-          echo "组织成员总数: $(echo "$members" | grep -c . )，本次补齐: $added"
+          else
+            fail "读不到团队列表：token 需要 Organization permissions → Members: Read and write（细粒度），或经典 PAT 勾 admin:org" "$c"
+          fi
+
+          # ---- 3) 组织成员 / 团队成员 ----
+          list_members "/orgs/$ORG/members" "$MEMBERS" || fail "读不到组织成员列表" "${c:-?}"
+          list_members "/orgs/$ORG/teams/$TEAM_SLUG/members" "$TEAM" || fail "读不到团队 $TEAM_SLUG 的成员（slug 是否写错？见上面的团队清单）" "${c:-?}"
+
+          total=$(grep -c . "$MEMBERS" || true)
+          inteam=$(grep -c . "$TEAM" || true)
+          echo "组织成员数 = $total，$TEAM_SLUG 现有成员数 = $inteam"
+
+          # ---- 4) 补齐（只加不删）----
+          added=0; failed=0
+          while read -r u; do
+            [ -z "$u" ] && continue
+            grep -qx "$u" "$TEAM" && continue
+            c=$(curl -sS -o "$API" -w '%{http_code}' -X PUT \
+              -H "Authorization: Bearer $ORG_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/orgs/$ORG/teams/$TEAM_SLUG/memberships/$u")
+            if [ "$c" = "200" ] || [ "$c" = "204" ]; then
+              echo "  + 加入 $TEAM_SLUG: $u (HTTP $c)"; added=$((added+1))
+            else
+              echo "::warning::加入失败: $u (HTTP $c)：$(jq -rc '.message? // .' "$API" 2>/dev/null | head -c 200)"; failed=$((failed+1))
+            fi
+          done < "$MEMBERS"
+
+          echo "完成：组织成员 $total，本次补齐 $added，失败 $failed"
+          [ "$failed" -gt 0 ] && echo "::error::有 $failed 个成员补齐失败，看上面的 warning" && exit 1
+          exit 0
