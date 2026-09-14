@@ -1,0 +1,63 @@
+name: 同步只读团队（兜底）
+
+# 作用：保证「组织成员 = 只读团队成员」这个不变量。
+# 为什么需要：走 join 仓库申请流程的邀请会带 team_ids，接受即入团队；
+# 但如果有人是被管理员从组织 UI 手动邀请的（没勾团队），就不会自动进 basic。
+# 本工作流只做「补齐」，从不移除任何人（移除是管理员的有意操作）。
+on:
+  schedule:
+    - cron: '30 1 * * 1'      # 每周一 09:30（北京时间）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 把组织成员补齐到只读团队
+        env:
+          ORG_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
+          ORG: ${{ vars.ORG_NAME || 'Agentic-Data-Lab' }}
+          TEAM_SLUG: ${{ vars.TEAM_SLUG || 'basic' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ORG_TOKEN:-}" ]; then
+            echo "::notice::尚未配置 ORG_ADMIN_TOKEN，本工作流跳过（配置后自动生效）"
+            exit 0
+          fi
+
+          api() {
+            curl -sS -H "Authorization: Bearer $ORG_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" "$@"
+          }
+
+          # 取全部组织成员（分页）
+          members=""
+          page=1
+          while :; do
+            chunk=$(api "https://api.github.com/orgs/$ORG/members?per_page=100&page=$page" | jq -r '.[].login')
+            [ -z "$chunk" ] && break
+            members="$members$chunk"$'\n'
+            [ "$(echo "$chunk" | wc -l)" -lt 100 ] && break
+            page=$((page+1))
+          done
+
+          team=$(api "https://api.github.com/orgs/$ORG/teams/$TEAM_SLUG/members?per_page=100" | jq -r '.[].login')
+
+          added=0
+          for u in $members; do
+            [ -z "$u" ] && continue
+            if ! grep -qx "$u" <<<"$team"; then
+              code=$(curl -sS -o /dev/null -w '%{http_code}' -X PUT \
+                -H "Authorization: Bearer $ORG_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/orgs/$ORG/teams/$TEAM_SLUG/memberships/$u")
+              echo "加入 $TEAM_SLUG: $u (HTTP $code)"
+              added=$((added+1))
+            fi
+          done
+          echo "组织成员总数: $(echo "$members" | grep -c . )，本次补齐: $added"
