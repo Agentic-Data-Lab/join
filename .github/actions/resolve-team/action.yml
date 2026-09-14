@@ -1,0 +1,100 @@
+name: 解析只读团队
+description: 按 slug 或显示名（忽略大小写、空格、连字符）解析组织团队，输出真实 slug 与 id。团队改名/不确定 slug 时不用改工作流。
+inputs:
+  org:
+    description: 组织名
+    required: true
+  token:
+    description: 具备 Members 读写权限的令牌
+    required: true
+  slug:
+    description: 候选 slug（可选）
+    required: false
+    default: ''
+  name:
+    description: 候选显示名（可选）
+    required: false
+    default: ''
+outputs:
+  slug:
+    description: 解析出的团队 slug
+    value: ${{ steps.resolve.outputs.slug }}
+  id:
+    description: 解析出的团队 id
+    value: ${{ steps.resolve.outputs.id }}
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        ORG: ${{ inputs.org }}
+        ORG_TOKEN: ${{ inputs.token }}
+        WANT_SLUG: ${{ inputs.slug }}
+        WANT_NAME: ${{ inputs.name }}
+      run: |
+        set -uo pipefail
+        API=/tmp/teams.json
+
+        code_of() {
+          curl -sS -o "$API.body" -w '%{http_code}' \
+            -H "Authorization: Bearer $ORG_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com$1"
+        }
+        norm() { printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -d ' _-'; }
+
+        # 拉全量团队列表（分页）
+        echo '[]' > "$API"
+        page=1
+        while :; do
+          c=$(code_of "/orgs/$ORG/teams?per_page=100&page=$page")
+          echo "GET /orgs/$ORG/teams?page=$page → HTTP $c"
+          if [ "$c" != "200" ]; then
+            echo "::error::读不到团队列表（HTTP $c）：$(jq -rc '.message? // .' "$API.body" 2>/dev/null | head -c 200)"
+            exit 1
+          fi
+          jq -s '.[0] + .[1]' "$API" "$API.body" > "$API.tmp" && mv "$API.tmp" "$API"
+          [ "$(jq 'length' "$API.body")" -lt 100 ] && break
+          page=$((page+1))
+        done
+
+        targets="$(norm "${WANT_SLUG:-}") $(norm "${WANT_NAME:-}")"
+        echo "候选（归一化后）: $targets"
+
+        # 1) 归一化后完全匹配（slug 或 name 任一命中即可）
+        match=""
+        while IFS=$'\t' read -r s n i; do
+          ns=$(norm "$s"); nn=$(norm "$n")
+          for t in $targets; do
+            [ -z "$t" ] && continue
+            if [ "$t" = "$ns" ] || [ "$t" = "$nn" ]; then match="$s|$i|精确匹配"; break 2; fi
+          done
+        done < <(jq -r '.[] | [.slug, .name, (.id|tostring)] | @tsv' "$API")
+
+        # 2) 退一步：包含匹配，且必须唯一命中
+        if [ -z "$match" ]; then
+          hits=""
+          while IFS=$'\t' read -r s n i; do
+            ns=$(norm "$s"); nn=$(norm "$n")
+            for t in $targets; do
+              [ -z "$t" ] && continue
+              case "$ns" in *"$t"*) hits="$hits $s|$i|模糊匹配"; break ;; esac
+              case "$nn" in *"$t"*) hits="$hits $s|$i|模糊匹配"; break ;; esac
+            done
+          done < <(jq -r '.[] | [.slug, .name, (.id|tostring)] | @tsv' "$API")
+          set -- $hits
+          [ "$#" = "1" ] && match="$1"
+        fi
+
+        if [ -z "$match" ]; then
+          echo "::error::解析不到团队（候选 slug='${WANT_SLUG:-}' name='${WANT_NAME:-}'）。组织下的团队如下，请把正确的 slug 填到仓库变量 TEAM_SLUG："
+          jq -r '.[] | "  - \(.slug) | \(.name)"' "$API"
+          exit 1
+        fi
+
+        SLUG=${match%%|*}; rest=${match#*|}; ID=${rest%%|*}; HOW=${rest##*|}
+        echo "✅ 解析团队：slug=$SLUG  id=$ID  （$HOW）"
+        echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+        echo "id=$ID" >> "$GITHUB_OUTPUT"
