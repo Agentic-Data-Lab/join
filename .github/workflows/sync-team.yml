@@ -46,8 +46,9 @@ jobs:
 
           echo "ORG = $ORG，TEAM_SLUG = $TEAM_SLUG"
 
+          CURL_OPTS=(--max-time 25 --retry 2 --retry-delay 2 --retry-connrefused)
           code_of() {
-            curl -sS -o "$API" -w '%{http_code}' \
+            curl -sS "${CURL_OPTS[@]}" -o "$API" -w '%{http_code}' \
               -H "Authorization: Bearer $ORG_TOKEN" \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -59,13 +60,22 @@ jobs:
             while :; do
               c=$(code_of "$path?per_page=100&page=$page")
               echo "GET $path?page=$page → HTTP $c"
-              [ "$c" = "200" ] || return 1
-              n=$(jq 'if type==\"array\" then length else -1 end' "$API")
-              [ "$n" -lt 0 ] && return 1
-              jq -r 'if type==\"array\" then .[].login else empty end' "$API" >> "$out"
+              if [ "$c" != "200" ]; then
+                echo "  响应: $(jq -rc '.message? // .' "$API" 2>/dev/null | head -c 200)"
+                return 1
+              fi
+              # 必须是数组；jq 解析失败也算失败（绝不让它悄悄变成空值继续翻页）
+              if ! n=$(jq -er 'if type=="array" then length else empty end' "$API" 2>/dev/null); then
+                echo "  响应不是数组: $(head -c 200 "$API")"
+                return 1
+              fi
+              jq -r 'if type=="array" then .[].login else empty end' "$API" >> "$out"
               [ "$n" -lt 100 ] && break
               page=$((page+1))
+              # 硬上限：正常最多几页，超过就是出问题了，宁可失败也不要空转
+              if [ "$page" -gt 20 ]; then echo "分页超过 20 页，异常退出"; return 1; fi
             done
+            return 0
           }
 
           list_members "/orgs/$ORG/members" "$MEMBERS" || fail "读不到组织成员列表：令牌需要 Organization permissions → Members: Read and write（细粒度），或经典 PAT 勾 admin:org" "${c:-?}"
@@ -78,7 +88,7 @@ jobs:
           while read -r u; do
             [ -z "$u" ] && continue
             grep -qx "$u" "$TEAM" && continue
-            c=$(curl -sS -o "$API" -w '%{http_code}' -X PUT \
+            c=$(curl -sS "${CURL_OPTS[@]}" -o "$API" -w '%{http_code}' -X PUT \
               -H "Authorization: Bearer $ORG_TOKEN" \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
