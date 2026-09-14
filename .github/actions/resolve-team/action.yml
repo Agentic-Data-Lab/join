@@ -36,8 +36,9 @@ runs:
         set -uo pipefail
         API=/tmp/teams.json
 
+        hdr_remaining() { awk 'tolower($1)=="x-ratelimit-remaining:"{print $2}' /tmp/hdr.txt 2>/dev/null | tr -d '\r' | tail -1; }
         code_of() {
-          curl -sS -o "$API.body" -w '%{http_code}' \
+          curl -sS -D /tmp/hdr.txt -o "$API.body" -w '%{http_code}' \
             -H "Authorization: Bearer $ORG_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -50,7 +51,7 @@ runs:
         page=1
         while :; do
           c=$(code_of "/orgs/$ORG/teams?per_page=100&page=$page")
-          echo "GET /orgs/$ORG/teams?page=$page → HTTP $c"
+          echo "GET /orgs/$ORG/teams?page=$page → HTTP $c（剩余配额 $(hdr_remaining)）"
           if [ "$c" != "200" ]; then
             echo "::error::读不到团队列表（HTTP $c）：$(jq -rc '.message? // .' "$API.body" 2>/dev/null | head -c 200)"
             exit 1

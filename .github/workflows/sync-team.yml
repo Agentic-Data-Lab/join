@@ -47,19 +47,28 @@ jobs:
           echo "ORG = $ORG，TEAM_SLUG = $TEAM_SLUG"
 
           CURL_OPTS=(--max-time 25 --retry 2 --retry-delay 2 --retry-connrefused)
+          hdr_remaining() { awk 'tolower($1)=="x-ratelimit-remaining:"{print $2}' /tmp/hdr.txt 2>/dev/null | tr -d '\r' | tail -1; }
+          hdr_reset()     { local r; r=$(awk 'tolower($1)=="x-ratelimit-reset:"{print $2}' /tmp/hdr.txt 2>/dev/null | tr -d '\r' | tail -1); [ -n "$r" ] && date -u -d "@$r" '+%H:%M UTC' 2>/dev/null; }
           code_of() {
-            curl -sS "${CURL_OPTS[@]}" -o "$API" -w '%{http_code}' \
+            curl -sS "${CURL_OPTS[@]}" -D /tmp/hdr.txt -o "$API" -w '%{http_code}' \
               -H "Authorization: Bearer $ORG_TOKEN" \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "https://api.github.com$1"
           }
-          fail() { echo "::error::$1（HTTP $2）：$(jq -rc '.message? // .' "$API" 2>/dev/null | head -c 300)"; exit 1; }
+          fail() {
+            local msg="$1" code="$2"
+            if [ "$code" = "403" ] || [ "$code" = "429" ]; then
+              msg="$msg ｜ 典型原因：API 配额用尽（令牌每小时 5000 次）。剩余 $(hdr_remaining)，重置 $([[ -n $(hdr_reset) ]] && hdr_reset || echo '见响应头')"
+            fi
+            echo "::error::$msg（HTTP $code）：$(jq -rc '.message? // .' "$API" 2>/dev/null | head -c 200)"
+            exit 1
+          }
           list_members() {
             local path="$1" out="$2" page=1 n c
             while :; do
               c=$(code_of "$path?per_page=100&page=$page")
-              echo "GET $path?page=$page → HTTP $c"
+              echo "GET $path?page=$page → HTTP $c（剩余配额 $(hdr_remaining)）"
               if [ "$c" != "200" ]; then
                 echo "  响应: $(jq -rc '.message? // .' "$API" 2>/dev/null | head -c 200)"
                 return 1
