@@ -73,9 +73,11 @@ Xu Zhangyi
    - 细粒度 PAT：Organization permissions → **Members: Read and write**，Repository access 选本仓库；
    - 或经典 PAT：勾 `admin:org`。
    - 到期或轮换时更新这个 secret 即可，工作流不用改。
-2. **变量（可选，有默认值）** Settings → Secrets and variables → Actions → **Variables**
+2. **变量（可选，通常不用设）** Settings → Secrets and variables → Actions → **Variables**
    - `ORG_NAME`（默认 `Agentic-Data-Lab`）
-   - `TEAM_SLUG`（默认 `basic`，即只读团队）
+   - `TEAM_SLUG`（默认 `basic-team`）、`TEAM_NAME`（默认 `Basic Team`）
+   - 团队是**按 slug 或显示名自动解析**的（忽略大小写、空格、连字符），所以团队改名、或只记得显示名
+     （`Basic Team`）都不会解析错；万一两个候选都不对，工作流会打印出组织下的团队清单让你照抄。
 
 ### 标签含义
 
