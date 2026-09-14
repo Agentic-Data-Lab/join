@@ -1,0 +1,85 @@
+name: 邀请申请者加入组织
+
+# 流程：同学提交「申请加入」issue → 管理员核对后加上 approved 标签 → 本工作流发出组织邀请（并放进只读团队）
+# 关键安全设计：
+#   1) 只有能编辑本仓库的人（= 管理员）才能加 approved 标签，所以外人无法自助把自己塞进组织；
+#   2) 工作流不 checkout、不执行 issue 里的任何内容，只做 API 调用；
+#   3) 组织级操作只用一个最小权限的 PAT（secret: ORG_ADMIN_TOKEN），仓库级操作（回帖/加标签）用默认 GITHUB_TOKEN。
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+
+jobs:
+  invite:
+    if: github.event.label.name == 'approved' && github.event.issue.state == 'open'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 确保标签存在
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          for L in "join-request:1f6feb" "approved:0e8a16" "invited:5319e7" "rejected:b60205"; do
+            name="${L%%:*}"; color="${L##*:}"
+            curl -sS -o /dev/null -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$REPO/labels" \
+              -d "{\"name\":\"$name\",\"color\":\"$color\"}" || true
+          done
+
+      - name: 邀请加入组织并放进只读团队
+        env:
+          ORG_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
+          ORG: ${{ vars.ORG_NAME || 'Agentic-Data-Lab' }}
+          TEAM_SLUG: ${{ vars.TEAM_SLUG || 'basic' }}
+          LOGIN: ${{ github.event.issue.user.login }}
+          USER_ID: ${{ github.event.issue.user.id }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          api() {
+            curl -sS -o /tmp/resp.json -w '%{http_code}' \
+              -H "Authorization: Bearer $ORG_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" "$@"
+          }
+
+          # 1) 取只读团队的 id（邀请时指定 team_ids，成员接受后直接进组，不用再手工加）
+          code=$(api "https://api.github.com/orgs/$ORG/teams/$TEAM_SLUG")
+          TEAM_ID=$(jq -r '.id // empty' /tmp/resp.json)
+          if [ -z "$TEAM_ID" ]; then
+            echo "::error::取不到团队 $TEAM_SLUG（HTTP $code）：$(jq -r '.message // ""' /tmp/resp.json)"
+            exit 1
+          fi
+
+          # 2) 发邀请
+          code=$(api -X POST "https://api.github.com/orgs/$ORG/invitations" \
+                 -d "{\"invitee_id\": $USER_ID, \"role\": \"direct_member\", \"team_ids\": [$TEAM_ID]}")
+          case "$code" in
+            201) MSG="@$LOGIN 已发出组织邀请，请到邮箱点接受（**7 天内有效**，过期请在这里回帖让我重发）。接受后你就有 \`$ORG\` 的只读权限了。";;
+            204|422) MSG="@$LOGIN 你已经是组织成员（或已有待接受的邀请），无需重复申请。";;
+            *) MSG="邀请失败（HTTP $code）：$(jq -r '.message // "未知错误"' /tmp/resp.json)"; echo "::error::$MSG"; exit 1;;
+          esac
+
+          # 3) 回帖 + 打标签 + 关闭
+          curl -sS -o /dev/null -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/issues/$ISSUE/comments" \
+            -d "$(jq -nc --arg b "$MSG" '{body:$b}')"
+          curl -sS -o /dev/null -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/issues/$ISSUE/labels" -d '{"labels":["invited"]}'
+          curl -sS -o /dev/null -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/issues/$ISSUE" -d '{"state":"closed"}'

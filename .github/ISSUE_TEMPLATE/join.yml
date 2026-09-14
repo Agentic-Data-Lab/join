@@ -1,0 +1,72 @@
+name: 申请加入 Agentic Data Lab 组织
+description: 提交后由管理员核对，通过后会收到 GitHub 邀请邮件（7 天内有效）
+title: "[申请加入] "
+labels: ["join-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 提交前请先做完这两件事
+
+        **1. 把 GitHub 账号的 Name 改成你的姓名拼音**（姓在前、名在后，首字母大写，如 `Xu Zhangyi`）
+
+        这一步很关键：很多同学的 login 是 `314yjs`、`loirisve`、`xhk010905` 这类，组织成员列表里
+        根本认不出是谁，对不上人；管理员核对不了就会一直挂着。
+        设置入口：<https://github.com/settings/profile> → Public profile → **Name**
+
+        **2. 读一遍 [只读使用规范](https://github.com/Agentic-Data-Lab/join/blob/main/usage-policy.md)**
+
+        ---
+  - type: input
+    id: name_pinyin
+    attributes:
+      label: 姓名拼音
+      description: 姓在前、名在后，首字母大写，空格分隔。必须和你在 GitHub 上设置的 Name 完全一致。
+      placeholder: Xu Zhangyi
+    validations:
+      required: true
+  - type: input
+    id: name_cn
+    attributes:
+      label: 中文姓名
+      placeholder: 许张祎
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: 身份
+      options:
+        - 硕士生
+        - 博士生
+        - 本科生
+        - 老师
+        - 其他（请在补充说明里写清）
+    validations:
+      required: true
+  - type: input
+    id: group
+    attributes:
+      label: 导师 / 课题组
+      placeholder: 张颖
+    validations:
+      required: true
+  - type: textarea
+    id: note
+    attributes:
+      label: 补充说明（可选）
+      description: 需要访问什么内容、预计用多久、有没有特殊情况
+      placeholder: 例如：我是 2026 级硕士生，需要读服务器文档并让自己的 agent 自动拉取
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已把 GitHub 账号的 Name 字段改成姓名拼音
+          required: true
+        - label: 我已阅读并同意《只读使用规范》，不会把文档内容外传
+          required: true
+        - label: 我知道组织成员是只读权限，不会去改仓库内容
+          required: true
