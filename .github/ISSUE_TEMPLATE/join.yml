@@ -8,8 +8,8 @@ body:
       value: |
         ## 加入后你能拿到什么
 
-        - **只读**访问组织内的仓库（目前主要是 `server_info`——服务器文档）；
-        - 仓库里的 `docs/*.md` 就是文档站各页的 Markdown 原文，**适合让你的 agent 直接读取**；
+        - **只读**访问组织内的一般仓库；
+        - 仓库[server_info](https://github.com/Agentic-Data-Lab/server_info)里的 `docs/*.md` 就是文档站各页的 Markdown 原文，**适合让你的 agent 直接读取**；
         - 其他实验室资源请从 <https://panel.jianke-yu.online/> 进入。
 
         提交后管理员会核对并处理；通过后你会收到 GitHub 邀请邮件（**7 天内有效**）。
@@ -27,7 +27,7 @@ body:
     id: note
     attributes:
       label: 补充说明（可选）
-      description: 需要读什么内容、打算怎么用（例如"让 agent 自动拉取服务器文档"）
+      description: 
     validations:
       required: false
   - type: checkboxes
@@ -36,6 +36,4 @@ body:
       label: 确认
       options:
         - label: 我已阅读并同意《只读使用规范》：组织内 private 仓库的内容一律不得对外传播
-          required: true
-        - label: 我知道仓库权限按项目分配（文档类仓库只读，项目仓库由管理员按需开通），不会修改自己没有权限的仓库
           required: true
