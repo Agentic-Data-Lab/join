@@ -1,9 +1,10 @@
 name: 邀请申请者加入组织
 
-# 流程：同学提交「申请加入」issue → 管理员核对后加 approved 标签 → 本工作流发组织邀请，并直接放进只读团队
+# 流程：同学提交「申请加入」issue（含学位 + 入学年份）→ 管理员核对后加 approved 标签 →
+#       解析出年级团队（basic-team 下的 <YY><学位>，如 26Master / 26PhD，不存在就建）→ 发组织邀请并放进该团队。
 # 安全设计：
 #   1) 只有能编辑本仓库的人（= 管理员）才能加 approved 标签，外人无法自助入组；
-#   2) 工作流不 checkout、不执行 issue 里的任何内容，只调 API；
+#   2) 工作流不 checkout 之外不执行 issue 里的任何内容，只调 API；
 #   3) 组织级操作只用最小权限令牌（secret: ORG_ADMIN_TOKEN），仓库级操作（回帖/标签/关闭）用默认 GITHUB_TOKEN。
 
 on:
@@ -18,22 +19,76 @@ jobs:
     if: github.event.label.name == 'approved' && github.event.issue.state == 'open'
     runs-on: ubuntu-latest
     steps:
-      # 仓库内的 composite action（./.github/actions/...）必须先 checkout 才能用。
-      # 本工作流只由 issues 事件触发，检出的是默认分支上的自有代码，不涉及不可信内容；
-      # 若将来给本仓库加 pull_request 触发器，务必先去掉这一步或改为不检出。
       - name: Checkout（仅为了使用仓库内的 composite action）
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: 解析只读团队（按 slug 或显示名，避免 slug 猜错）
-        id: team
+      - name: 解析父团队（basic-team）
+        id: parent
         uses: ./.github/actions/resolve-team
         with:
           org: ${{ vars.ORG_NAME || 'Agentic-Data-Lab' }}
           token: ${{ secrets.ORG_ADMIN_TOKEN }}
           slug: ${{ vars.TEAM_SLUG || 'basic-team' }}
           name: ${{ vars.TEAM_NAME || 'Basic Team' }}
+
+      - name: 解析申请信息（学位 + 入学年份 → 年级团队名）
+        id: cohort
+        env:
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          set -uo pipefail
+          field() {
+            printf '%s' "$BODY" | awk -v label="$1" '
+              $0 == "### " label { getline; while ($0 ~ /^[[:space:]]*$/) getline; print; exit }'
+          }
+          DEGREE=$(field "学位")
+          YEAR=$(field "入学年份")
+          case "$DEGREE" in
+            *硕士*) SUF=Master ;;
+            *博士*) SUF=PhD ;;
+            *)      SUF="" ;;
+          esac
+          YY=$(printf '%s' "$YEAR" | grep -oE '^[0-9]{4}$' | cut -c3-4 || true)
+          echo "学位='$DEGREE'  入学年份='$YEAR'  → 后缀='$SUF'  两位年='$YY'"
+          if [ -z "$SUF" ] || [ -z "$YY" ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            NAME="${YY}${SUF}"
+            echo "name=$NAME" >> "$GITHUB_OUTPUT"
+            echo "slug=$(printf '%s' "$NAME" | tr 'A-Z' 'a-z')" >> "$GITHUB_OUTPUT"
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "→ 年级团队: $NAME"
+          fi
+
+      - name: 申请信息不完整 → 回帖提示并失败
+        if: steps.cohort.outputs.ok != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          LOGIN: ${{ github.event.issue.user.login }}
+        run: |
+          curl -sS -o /dev/null -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/issues/$ISSUE/comments" \
+            -d "$(jq -nc --arg b "@$LOGIN 申请里的「学位」或「入学年份」缺失或格式不对（年份要 4 位数字，如 2026）。请编辑 issue 修正后，让管理员重新加一次 \`approved\` 标签。" '{body:$b}')"
+          echo "::error::申请信息不完整，已回帖提示"
+          exit 1
+
+      - name: 解析或创建年级团队（basic-team 的子团队）
+        id: cohort_team
+        uses: ./.github/actions/resolve-team
+        with:
+          org: ${{ vars.ORG_NAME || 'Agentic-Data-Lab' }}
+          token: ${{ secrets.ORG_ADMIN_TOKEN }}
+          slug: ${{ steps.cohort.outputs.slug }}
+          name: ${{ steps.cohort.outputs.name }}
+          create: 'true'
+          parent_id: ${{ steps.parent.outputs.id }}
 
       - name: 确保标签存在
         env:
@@ -50,12 +105,13 @@ jobs:
               -d "{\"name\":\"$name\",\"color\":\"$color\"}" || true
           done
 
-      - name: 发出组织邀请
+      - name: 发出组织邀请（带年级团队）
         env:
           ORG_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
           ORG: ${{ vars.ORG_NAME || 'Agentic-Data-Lab' }}
-          TEAM_SLUG: ${{ steps.team.outputs.slug }}
-          TEAM_ID: ${{ steps.team.outputs.id }}
+          TEAM_SLUG: ${{ steps.cohort_team.outputs.slug }}
+          TEAM_ID: ${{ steps.cohort_team.outputs.id }}
+          COHORT: ${{ steps.cohort.outputs.name }}
           LOGIN: ${{ github.event.issue.user.login }}
           USER_ID: ${{ github.event.issue.user.id }}
           ISSUE: ${{ github.event.issue.number }}
@@ -70,12 +126,12 @@ jobs:
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" "$@"
           }
-          echo "将邀请 @$LOGIN ($USER_ID) 加入 $ORG，并放进团队 $TEAM_SLUG (id=$TEAM_ID)"
+          echo "邀请 @$LOGIN ($USER_ID) 加入 $ORG，并放进年级团队 $COHORT (slug=$TEAM_SLUG, id=$TEAM_ID)"
 
           code=$(api -X POST "https://api.github.com/orgs/$ORG/invitations" \
                  -d "{\"invitee_id\": $USER_ID, \"role\": \"direct_member\", \"team_ids\": [$TEAM_ID]}")
           case "$code" in
-            201) MSG="@$LOGIN 已发出组织邀请，请到邮箱点接受（**7 天内有效**，过期请在此回帖让我重发）。接受后你就自动在 \`$TEAM_SLUG\` 团队里，拥有只读权限。" ;;
+            201) MSG="@$LOGIN 已发出组织邀请，请到邮箱点接受（**7 天内有效**，过期请在此回帖让我重发）。接受后你会自动进入 **$COHORT** 团队（\`basic-team\` 下的年级团队，权限与 basic-team 相同：只读）。" ;;
             204|422) MSG="@$LOGIN 你已经是组织成员（或已有待接受的邀请），无需重复申请。" ;;
             *) MSG="邀请失败（HTTP $code）：$(jq -rc '.message? // .' "$API" 2>/dev/null | head -c 200)"; echo "::error::$MSG"; exit 1 ;;
           esac

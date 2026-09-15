@@ -23,6 +23,25 @@ body:
       description: 管理员按名字核对，请写全名
     validations:
       required: true
+  - type: dropdown
+    id: degree
+    attributes:
+      label: 学位
+      description: 用来把你加进对应的年级团队（basic-team 下的 <年级><学位>，如 26Master / 26PhD）
+      options:
+        - 硕士生
+        - 博士生
+        - 其他（请在补充说明里写明）
+    validations:
+      required: true
+  - type: input
+    id: year
+    attributes:
+      label: 入学年份
+      description: 四位年份，例如 2026
+      placeholder: "2026"
+    validations:
+      required: true
   - type: textarea
     id: note
     attributes:
