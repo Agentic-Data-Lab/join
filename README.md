@@ -101,4 +101,4 @@ A：能。login（登录名）可以改一次（设置里 Change username），�
 A：检查垃圾箱；也可以在 [组织邀请页](https://github.com/orgs/Agentic-Data-Lab/invitation) 找到。7 天过期就在申请 issue 里回帖。
 
 **Q：我只是想让 agent 读文档，一定要加入组织吗？**
-A：目前是这样（文档仓库是私有的）。另外站点上有只读的 Markdown 端点和 `llms.txt`，只要管理员给你口令，不加入组织也能读——需要的话找管理员。
+A：目前是这样（组织仓库是私有的）。另外站点上有只读的 Markdown 端点，只要管理员给你口令，不加入组织也能读——需要的话找管理员。
