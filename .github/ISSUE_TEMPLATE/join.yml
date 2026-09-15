@@ -6,57 +6,29 @@ body:
   - type: markdown
     attributes:
       value: |
-        ## 提交前请先做完这两件事
+        ## 加入后你能拿到什么
 
-        **1. 把 GitHub 账号的 Name 改成你的姓名拼音**（姓在前、名在后，首字母大写，如 `Xu Zhangyi`）
+        - **只读**访问组织内的仓库（目前主要是 `server_info`——服务器文档）；
+        - 仓库里的 `docs/*.md` 就是文档站各页的 Markdown 原文，**适合让你的 agent 直接读取**；
+        - 其他实验室资源请从 <https://panel.jianke-yu.online/> 进入。
 
-        这一步很关键：很多同学的 login 是 `314yjs`、`loirisve`、`xhk010905` 这类，组织成员列表里
-        根本认不出是谁，对不上人；管理员核对不了就会一直挂着。
-        设置入口：<https://github.com/settings/profile> → Public profile → **Name**
-
-        **2. 读一遍 [只读使用规范](https://github.com/Agentic-Data-Lab/join/blob/main/usage-policy.md)**
+        提交后管理员会核对并处理；通过后你会收到 GitHub 邀请邮件（**7 天内有效**）。
+        提交前请读一遍 [只读使用规范](https://github.com/Agentic-Data-Lab/join/blob/main/usage-policy.md)。
 
         ---
-  - type: input
-    id: name_pinyin
-    attributes:
-      label: 姓名拼音
-      description: 姓在前、名在后，首字母大写，空格分隔。必须和你在 GitHub 上设置的 Name 完全一致。
-      placeholder: Xu Zhangyi
-    validations:
-      required: true
   - type: input
     id: name_cn
     attributes:
       label: 中文姓名
+      description: 管理员按名字核对，请写全名
       placeholder: 许张祎
-    validations:
-      required: true
-  - type: dropdown
-    id: role
-    attributes:
-      label: 身份
-      options:
-        - 硕士生
-        - 博士生
-        - 本科生
-        - 老师
-        - 其他（请在补充说明里写清）
-    validations:
-      required: true
-  - type: input
-    id: group
-    attributes:
-      label: 导师 / 课题组
-      placeholder: 张颖
     validations:
       required: true
   - type: textarea
     id: note
     attributes:
       label: 补充说明（可选）
-      description: 需要访问什么内容、预计用多久、有没有特殊情况
-      placeholder: 例如：我是 2026 级硕士生，需要读服务器文档并让自己的 agent 自动拉取
+      description: 需要读什么内容、打算怎么用（例如"让 agent 自动拉取服务器文档"）
     validations:
       required: false
   - type: checkboxes
@@ -64,9 +36,7 @@ body:
     attributes:
       label: 确认
       options:
-        - label: 我已把 GitHub 账号的 Name 字段改成姓名拼音
+        - label: 我已阅读并同意《只读使用规范》：组织内 private 仓库的内容一律不得对外传播
           required: true
-        - label: 我已阅读并同意《只读使用规范》，不会把文档内容外传
-          required: true
-        - label: 我知道组织成员是只读权限，不会去改仓库内容
+        - label: 我知道加入后是只读权限，不会尝试修改仓库内容
           required: true
