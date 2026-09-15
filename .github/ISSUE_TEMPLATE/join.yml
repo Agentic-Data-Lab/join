@@ -21,7 +21,6 @@ body:
     attributes:
       label: 中文姓名
       description: 管理员按名字核对，请写全名
-      placeholder: 许张祎
     validations:
       required: true
   - type: textarea
@@ -38,5 +37,5 @@ body:
       options:
         - label: 我已阅读并同意《只读使用规范》：组织内 private 仓库的内容一律不得对外传播
           required: true
-        - label: 我知道加入后是只读权限，不会尝试修改仓库内容
+        - label: 我知道仓库权限按项目分配（文档类仓库只读，项目仓库由管理员按需开通），不会修改自己没有权限的仓库
           required: true
