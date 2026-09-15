@@ -68,6 +68,7 @@
 | **批准** | 核对姓名/中文名/导师与实验室名单是否对得上，然后给 issue 加 **`approved`** 标签 → 工作流自动发邀请、回帖、打 `invited` 标签并关闭 issue |
 | **驳回** | 加 **`rejected`** 标签 + 回帖说明原因 + 关闭 issue |
 | **重发邀请** | 把 `invited` 标签去掉再加回 `approved`（或直接到组织 People 页面重发）；邀请 7 天过期 |
+| **核对成员是否都在只读团队** | 手动跑一次 `同步只读团队（兜底）` 工作流（定时已关闭，仅排障用） |
 | **撤销资格** | 组织 → People → 找到该成员 → Remove from organization（或 `DELETE /orgs/{org}/memberships/{username}`） |
 | **看谁还没接受** | 组织 → People → **Pending invitations**（可批量取消/重发） |
 | **核对身份** | 组织成员列表按 Name（拼音）排序即可对号入座；`server_info/docs/user_info.md` 里有实验室账号对照表 |
