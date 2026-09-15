@@ -12,7 +12,7 @@
 
 ### 第 1 步：提交申请
 
-点 [**New issue → 申请加入 Agentic Data Lab 组织**](https://github.com/Agentic-Data-Lab/join/issues/new/choose)，
+点 [**New issue → 申请加入 Agentic Data Lab 组织**](https://github.com/Agentic-Data-Lab/join/issues/new?template=join.yml)，
 填**中文姓名**（管理员按名字核对）和可选的补充说明，勾选两个确认项后提交。
 
 ### 第 2 步：等管理员核对
