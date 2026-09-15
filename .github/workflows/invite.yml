@@ -75,7 +75,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/$REPO/issues/$ISSUE/comments" \
-            -d "$(jq -nc --arg b "@$LOGIN 申请里的「学位」或「入学年份」缺失或格式不对（年份要 4 位数字，如 2026）。请编辑 issue 修正后，让管理员重新加一次 \`approved\` 标签。" '{body:$b}')"
+            -d "$(jq -nc --arg b "@$LOGIN 申请里的「学位」或「入学年份」缺失或格式不对（年份要 4 位数字，如 2026）。请编辑 issue 修正后让管理员重新加一次 \`approved\` 标签；如果身份不是硕士/博士（选了「其他」），请在补充说明里写明，由管理员人工处理。" '{body:$b}')"
           echo "::error::申请信息不完整，已回帖提示"
           exit 1
 
